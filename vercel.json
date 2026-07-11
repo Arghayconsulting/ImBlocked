@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/scan/:sticker_id", "destination": "/scan/_/index.html" }
+  ]
+}

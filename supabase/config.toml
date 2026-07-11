@@ -1,0 +1,12 @@
+project_id = "imblocked-in"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+
+[functions.trigger-sms]
+# Public endpoint invoked by anonymous scanners with only the anon key — no user session exists.
+verify_jwt = false

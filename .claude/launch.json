@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "imblocked-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "imblocked-static",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/static-server.mjs"],
+      "port": 3000
+    }
+  ]
+}

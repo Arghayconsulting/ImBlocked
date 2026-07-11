@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p app/scan/\\\\[sticker_id\\\\] lib/supabase db supabase/functions/trigger-sms supabase/migrations && echo done)"
+    ]
+  }
+}
