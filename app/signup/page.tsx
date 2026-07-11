@@ -27,23 +27,29 @@ export default function SignupPage() {
       },
     });
     setLoading(false);
+
     if (error) {
-      if (
-        error.message.toLowerCase().includes('already registered') ||
-        error.message.toLowerCase().includes('already exists') ||
-        error.message.toLowerCase().includes('user already')
-      ) {
-        setError('An account with this email already exists. Please log in or reset your password.');
-      } else {
-        setError(error.message);
-      }
+      const msg = typeof error.message === 'string' ? error.message : '';
+      const isExisting =
+        msg.toLowerCase().includes('already registered') ||
+        msg.toLowerCase().includes('already exists') ||
+        msg.toLowerCase().includes('user already');
+      setError(
+        isExisting
+          ? 'An account with this email already exists. Please log in or reset your password.'
+          : msg && !msg.startsWith('{')
+          ? msg
+          : 'Signup failed. Please try again.'
+      );
       return;
     }
-    // Supabase silently succeeds for existing confirmed emails — detect by checking identities
-    if (data.user && data.user.identities && data.user.identities.length === 0) {
+
+    // Supabase silently "succeeds" for duplicate emails — identities array is empty
+    if (!data.user || (Array.isArray(data.user.identities) && data.user.identities.length === 0)) {
       setError('An account with this email already exists. Please log in or reset your password.');
       return;
     }
+
     if (data.session) { router.push('/dashboard'); } else { setConfirmEmailSent(true); }
   }
 

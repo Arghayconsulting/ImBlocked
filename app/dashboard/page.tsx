@@ -111,6 +111,12 @@ export default function DashboardPage() {
     await supabase.rpc('resolve_incident', { p_incident_id: incidentId });
   }
 
+  async function handleDeleteVehicle(vehicleId: string) {
+    if (!confirm('Delete this vehicle and its QR code? This cannot be undone.')) return;
+    const { error } = await supabase.from('stickers').delete().eq('id', vehicleId);
+    if (!error) setVehicles((prev) => prev.filter((v) => v.id !== vehicleId));
+  }
+
   if (authLoading || !session) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -205,7 +211,7 @@ export default function DashboardPage() {
         ) : (
           <div className="flex flex-col gap-4">
             {vehicles.map((vehicle) => (
-              <VehicleCard key={vehicle.id} vehicle={vehicle} />
+              <VehicleCard key={vehicle.id} vehicle={vehicle} onDelete={handleDeleteVehicle} />
             ))}
           </div>
         )}
@@ -302,7 +308,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
+function VehicleCard({ vehicle, onDelete }: { vehicle: Vehicle; onDelete: (id: string) => void }) {
   const [scanUrl, setScanUrl] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
@@ -312,10 +318,18 @@ function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
     QRCode.toDataURL(url, { margin: 1, width: 200, color: { dark: '#0f172a', light: '#ffffff' } }).then(setQrDataUrl);
   }, [vehicle.id]);
 
+  function downloadQR() {
+    if (!qrDataUrl) return;
+    const a = document.createElement('a');
+    a.href = qrDataUrl;
+    a.download = `imblocked-${vehicle.vehicle_hint ?? vehicle.id}.png`;
+    a.click();
+  }
+
   return (
     <div className="flex items-center gap-5 rounded-xl border border-slate-200 p-4">
       {qrDataUrl ? (
-        <img src={qrDataUrl} alt="QR code" className="h-20 w-20 shrink-0 rounded-lg" />
+        <img src={qrDataUrl} alt="QR code" className="h-20 w-20 shrink-0 rounded-lg cursor-pointer" onClick={downloadQR} title="Click to download" />
       ) : (
         <div className="h-20 w-20 shrink-0 animate-pulse rounded-lg bg-slate-100" />
       )}
@@ -330,16 +344,32 @@ function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
           <p className="mt-1.5 truncate text-xs text-slate-400">{scanUrl}</p>
         )}
       </div>
-      {scanUrl && (
-        <a
-          href={scanUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+      <div className="flex shrink-0 flex-col gap-2">
+        {scanUrl && (
+          <a
+            href={scanUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 text-center"
+          >
+            Test scan
+          </a>
+        )}
+        {qrDataUrl && (
+          <button
+            onClick={downloadQR}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+          >
+            Download QR
+          </button>
+        )}
+        <button
+          onClick={() => onDelete(vehicle.id)}
+          className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50"
         >
-          Test scan
-        </a>
-      )}
+          Delete
+        </button>
+      </div>
     </div>
   );
 }
