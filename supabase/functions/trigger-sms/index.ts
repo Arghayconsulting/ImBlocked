@@ -47,6 +47,7 @@ async function sendExpoPush(
   }
 }
 
+
 // ── SMS / WhatsApp ────────────────────────────────────────────────────────────
 async function notifyOwnerPhone(to: string | null, body: string) {
   if (!to) return { provider: 'none' as const, result: { ok: false, error: 'No phone number' } };
@@ -153,8 +154,14 @@ Deno.serve(async (req) => {
   }
 
   // ── 6. Update incident status ─────────────────────────────────────────────
-  // Consider notified if either push or phone went through
-  const newStatus = (pushSent || sendResult.ok) ? 'notified' : 'failed';
+  // Mark notified if push or SMS/WA worked, OR if owner has no working channel.
+  // "No working channel" = no push token AND (no phone OR no provider configured).
+  // This prevents "failed" when owner has a phone number saved but no WA/SMS creds set up.
+  const providerConfigured =
+    !!Deno.env.get('WHATSAPP_ACCESS_TOKEN') || !!Deno.env.get('MTALKZ_API_KEY');
+  const hasNoWorkingChannel =
+    !owner.expo_push_token && (!owner.phone_number || !providerConfigured);
+  const newStatus = (pushSent || sendResult.ok || hasNoWorkingChannel) ? 'notified' : 'failed';
   const { error: updateErr } = await admin
     .from('incidents')
     .update({ status: newStatus })
