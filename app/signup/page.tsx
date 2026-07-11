@@ -21,10 +21,29 @@ export default function SignupPage() {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name } },
+      options: {
+        data: { name },
+        emailRedirectTo: 'https://imblocked.in/auth/confirm',
+      },
     });
     setLoading(false);
-    if (error) { setError(error.message); return; }
+    if (error) {
+      if (
+        error.message.toLowerCase().includes('already registered') ||
+        error.message.toLowerCase().includes('already exists') ||
+        error.message.toLowerCase().includes('user already')
+      ) {
+        setError('An account with this email already exists. Please log in or reset your password.');
+      } else {
+        setError(error.message);
+      }
+      return;
+    }
+    // Supabase silently succeeds for existing confirmed emails — detect by checking identities
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      setError('An account with this email already exists. Please log in or reset your password.');
+      return;
+    }
     if (data.session) { router.push('/dashboard'); } else { setConfirmEmailSent(true); }
   }
 
@@ -112,6 +131,12 @@ export default function SignupPage() {
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
                 {error}
+                {(error.includes('already exists') || error.includes('already registered')) && (
+                  <div className="mt-2 flex gap-3">
+                    <Link href="/login" className="font-semibold underline">Log in</Link>
+                    <Link href="/forgot-password" className="font-semibold underline">Reset password</Link>
+                  </div>
+                )}
               </div>
             )}
 
