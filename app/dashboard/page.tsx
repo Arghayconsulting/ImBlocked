@@ -5,7 +5,17 @@ import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth/AuthProvider';
-import type { Vehicle, Incident } from '@/lib/types';
+import { VEHICLE_TYPES, type Vehicle, type VehicleType, type Incident } from '@/lib/types';
+
+function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -16,6 +26,7 @@ export default function DashboardPage() {
   const [loadingData, setLoadingData] = useState(true);
 
   const [vehicleHint, setVehicleHint] = useState('');
+  const [vehicleType, setVehicleType] = useState<VehicleType | ''>('');
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [addVehicleError, setAddVehicleError] = useState<string | null>(null);
 
@@ -39,7 +50,7 @@ export default function DashboardPage() {
       setLoadingData(true);
       const { data: vehicleRows } = await supabase
         .from('stickers')
-        .select('id, status, vehicle_hint, created_at')
+        .select('id, status, vehicle_hint, vehicle_type, created_at')
         .eq('owner_user_id', profile.id)
         .order('created_at', { ascending: false });
       if (cancelled) return;
@@ -81,17 +92,22 @@ export default function DashboardPage() {
   async function handleAddVehicle(e: FormEvent) {
     e.preventDefault();
     if (!profile) return;
+    if (!vehicleHint.trim() || !vehicleType) {
+      setAddVehicleError('Please enter a license plate and select a vehicle type.');
+      return;
+    }
     setAddingVehicle(true);
     setAddVehicleError(null);
     const { data, error } = await supabase
       .from('stickers')
-      .insert({ owner_user_id: profile.id, vehicle_hint: vehicleHint || null, status: 'active' })
-      .select('id, status, vehicle_hint, created_at')
+      .insert({ owner_user_id: profile.id, vehicle_hint: vehicleHint.trim(), vehicle_type: vehicleType, status: 'active' })
+      .select('id, status, vehicle_hint, vehicle_type, created_at')
       .single();
     setAddingVehicle(false);
     if (error || !data) { setAddVehicleError(error?.message ?? 'Failed to add vehicle'); return; }
     setVehicles((prev) => [data as Vehicle, ...prev]);
     setVehicleHint('');
+    setVehicleType('');
   }
 
   async function handleSaveProfile(e: FormEvent) {
@@ -181,13 +197,25 @@ export default function DashboardPage() {
           <h2 className="font-semibold text-slate-900">Your vehicles</h2>
           <span className="text-xs text-slate-400">{vehicles.length} registered</span>
         </div>
-        <form onSubmit={handleAddVehicle} className="mb-5 flex gap-3">
+        <form onSubmit={handleAddVehicle} className="mb-5 flex flex-col gap-3 sm:flex-row">
           <input
-            placeholder="License plate or description (e.g. MH12AB1234)"
+            placeholder="License plate (e.g. MH12AB1234)"
             value={vehicleHint}
             onChange={(e) => setVehicleHint(e.target.value)}
+            required
             className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
           />
+          <select
+            value={vehicleType}
+            onChange={(e) => setVehicleType(e.target.value as VehicleType)}
+            required
+            className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+          >
+            <option value="" disabled>Vehicle type</option>
+            {VEHICLE_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
           <button
             type="submit"
             disabled={addingVehicle}
@@ -313,17 +341,113 @@ function VehicleCard({ vehicle, onDelete }: { vehicle: Vehicle; onDelete: (id: s
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    const url = `${window.location.origin}/scan/${vehicle.id}`;
+    const url = `https://www.imblocked.in/scan/${vehicle.id}`;
     setScanUrl(url);
-    QRCode.toDataURL(url, { margin: 1, width: 200, color: { dark: '#0f172a', light: '#ffffff' } }).then(setQrDataUrl);
+    QRCode.toDataURL(url, { margin: 4, width: 200, color: { dark: '#0f172a', light: '#ffffff' } }).then(setQrDataUrl);
   }, [vehicle.id]);
 
   function downloadQR() {
     if (!qrDataUrl) return;
-    const a = document.createElement('a');
-    a.href = qrDataUrl;
-    a.download = `imblocked-${vehicle.vehicle_hint ?? vehicle.id}.png`;
-    a.click();
+    const img = new Image();
+    img.onload = () => {
+      const width = 320;
+      const radius = 16;
+      const bannerHeight = 60;
+      const qrSectionHeight = 22 + img.height + 22;
+      const footerHeight = 34;
+      let y = bannerHeight + qrSectionHeight;
+      y += 26; // line 1 baseline
+      y += 20; // sub 1 baseline
+      y += 26; // line 2 baseline
+      y += 20; // sub 2 baseline
+      y += 18; // gap before footer
+      const height = y + footerHeight;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.save();
+      roundedRectPath(ctx, 0, 0, width, height, radius);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.clip();
+
+      // Banner
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(0, 0, width, bannerHeight);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('imblocked.in', width / 2, 30);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = '600 11px sans-serif';
+      ctx.fillText('Report a Blocked Vehicle', width / 2, 46);
+
+      // QR
+      const qrX = (width - img.width) / 2;
+      const qrY = bannerHeight + 22;
+      ctx.drawImage(img, qrX, qrY);
+
+      // Divider
+      let cursorY = bannerHeight + qrSectionHeight;
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(16, cursorY);
+      ctx.lineTo(width - 16, cursorY);
+      ctx.stroke();
+
+      // Bilingual instructions
+      cursorY += 26;
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('Blocked by this vehicle?', width / 2, cursorY);
+      cursorY += 20;
+      ctx.fillStyle = '#475569';
+      ctx.font = '500 12px sans-serif';
+      ctx.fillText('Scan the QR to notify the owner', width / 2, cursorY);
+      cursorY += 26;
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('यह गाड़ी रास्ता रोक रही है?', width / 2, cursorY);
+      cursorY += 20;
+      ctx.fillStyle = '#475569';
+      ctx.font = '500 12px sans-serif';
+      ctx.fillText('मालिक को सूचित करने के लिए QR स्कैन करें', width / 2, cursorY);
+
+      // Footer
+      cursorY += 18;
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, cursorY, width, footerHeight);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(0, cursorY);
+      ctx.lineTo(width, cursorY);
+      ctx.stroke();
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '600 10px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(vehicle.vehicle_hint ?? 'Registered vehicle', 16, cursorY + footerHeight / 2 + 4);
+      ctx.textAlign = 'right';
+      ctx.fillText('imblocked.in', width - 16, cursorY + footerHeight / 2 + 4);
+
+      ctx.restore();
+
+      // Outer border
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2;
+      roundedRectPath(ctx, 1, 1, width - 2, height - 2, radius - 1);
+      ctx.stroke();
+
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `imblocked-${vehicle.vehicle_hint ?? vehicle.id}.png`;
+      a.click();
+    };
+    img.src = qrDataUrl;
   }
 
   return (
@@ -340,6 +464,11 @@ function VehicleCard({ vehicle, onDelete }: { vehicle: Vehicle; onDelete: (id: s
         }`}>
           {vehicle.status}
         </span>
+        {vehicle.vehicle_type && (
+          <span className="mt-1 ml-1.5 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+            {VEHICLE_TYPES.find((t) => t.value === vehicle.vehicle_type)?.label ?? vehicle.vehicle_type}
+          </span>
+        )}
         {scanUrl && (
           <p className="mt-1.5 truncate text-xs text-slate-400">{scanUrl}</p>
         )}

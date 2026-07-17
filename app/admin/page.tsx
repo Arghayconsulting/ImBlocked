@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth/AuthProvider';
-import type { Vehicle, Incident } from '@/lib/types';
+import { PLANS, type Vehicle, type Incident, type AdminUser, type Plan } from '@/lib/types';
 
 interface AdminStats {
   totalStickers: number;
@@ -28,6 +28,10 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [recentIncidents, setRecentIncidents] = useState<RecentIncident[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +48,7 @@ export default function AdminPage() {
       setLoadingData(true);
       try {
         const [stickersRes, incidentsRes] = await Promise.all([
-          supabase.from('stickers').select('id, status, vehicle_hint, created_at, owner_user_id'),
+          supabase.from('stickers').select('id, status, vehicle_hint, vehicle_type, created_at, owner_user_id'),
           supabase.from('incidents').select('id, sticker_id, status, created_at, resolved_at').order('created_at', { ascending: false }).limit(50),
         ]);
 
@@ -73,7 +77,25 @@ export default function AdminPage() {
         setLoadingData(false);
       }
     })();
+
+    // Isolated: a failure here (e.g. admin RPC not deployed/migrated yet) shouldn't
+    // blank out the rest of the admin page's stats/incidents/vehicles.
+    (async () => {
+      setLoadingUsers(true);
+      const { data, error: usersErr } = await supabase.rpc('admin_list_users');
+      if (usersErr) { setUsersError(usersErr.message); setLoadingUsers(false); return; }
+      setUsers((data ?? []) as AdminUser[]);
+      setLoadingUsers(false);
+    })();
   }, [isAdmin]);
+
+  async function handleChangePlan(userId: string, plan: Plan) {
+    setSavingUserId(userId);
+    const { error: rpcError } = await supabase.rpc('admin_set_user_plan', { p_user_id: userId, p_plan: plan });
+    setSavingUserId(null);
+    if (rpcError) { alert(`Failed to update plan: ${rpcError.message}`); return; }
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plan } : u)));
+  }
 
   if (authLoading || !session || !isAdmin) {
     return (
@@ -209,6 +231,57 @@ export default function AdminPage() {
               <StatusRow label="Static export (Vercel)" status="operational" />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Users & Subscriptions */}
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-6 py-4">
+          <h2 className="font-semibold text-slate-900">Users & Subscriptions</h2>
+          <p className="text-xs text-slate-400">
+            {users.length} users · Premium/Premium Pro have no self-serve payment flow yet — change a user&apos;s plan here to grant it manually.
+          </p>
+        </div>
+        {usersError && (
+          <div className="mx-6 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-xs font-semibold text-amber-800">Couldn&apos;t load users</p>
+            <p className="mt-1 text-xs text-amber-700">{usersError}</p>
+          </div>
+        )}
+        <div className="divide-y divide-slate-100">
+          {loadingUsers ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-6 py-4">
+                <div className="h-4 w-40 animate-pulse rounded bg-slate-100" />
+              </div>
+            ))
+          ) : usersError ? null : users.length === 0 ? (
+            <p className="px-6 py-8 text-center text-sm text-slate-400">No users found.</p>
+          ) : (
+            users.map((u) => (
+              <div key={u.id} className="flex items-center justify-between gap-4 px-6 py-3.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-900">{u.name ?? 'Unnamed user'}</p>
+                  <p className="truncate text-xs text-slate-400">{u.phone_number ?? 'No phone number'}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <select
+                    value={u.plan}
+                    disabled={savingUserId === u.id}
+                    onChange={(e) => handleChangePlan(u.id, e.target.value as Plan)}
+                    className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20 disabled:opacity-50"
+                  >
+                    {PLANS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                  {savingUserId === u.id && (
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-200 border-t-red-600" />
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
